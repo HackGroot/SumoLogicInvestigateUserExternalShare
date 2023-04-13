@@ -1,0 +1,40 @@
+╰─ clear                                                                                                                                                                                    ─╯
+import re
+
+query = '(_sourceCategory=prod/gsuite/* "\\"type\\": \\"acl_change\\"" "\\"applicationName\\": \\"drive\\"" (can_view OR can_edit OR people_with_link OR public_on_the_web))\
+\n| json "id", "actor", "ipAddress" nodrop\
+\n| json field=actor "email"\
+\n| json field=id "applicationName"\
+\n| parse regex "(?<p_Event>\\{\\n\\s+\\"type\\": \\"\\w+\\",\\n\\s+\\"name\\": \\"\\w+\\",\\n\\s+\\"parameters\\": \\[\\n\\s+\\{\\n\\s+\\"name\\": \\"primary_event\\",\\n\\s+\\"boolValue\\": true\\n(?s).+?)(?=,\\n\\s+\\{\\n\\s+\\"type\\"|\\n\\s+\\]\\n\\}$)" multi\
+\n| json field=p_Event "type","name" as eventType, eventName\
+\n| where eventType="acl_change" and applicationName="drive"\
+\n| parse regex field=p_Event "\\"name\\": \\"doc_title\\",\\n\\s+\\"value\\": \\"(?<doc_title>[^\\"]*)\\"" nodrop\
+\n| parse regex field=p_Event "\\"name\\": \\"target_user\\",\\n\\s+\\"value\\": \\"(?<target_user>[^\\"]*)\\"" nodrop\
+\n| parse regex field=p_Event "\\"name\\": \\"new_value\\",\\n\\s+\\"multiValue\\": \\[\\n\\s+(?<new_value>[^\\]]*?)\\]\\n" nodrop\
+\n| replace (new_value, "\\"", "") as new_value\
+\n| where new_value matches "*can_view*" or new_value matches "*can_edit*" or new_value matches "people_with_link*" or new_value matches "public_on_the_web*"\n\
+\n| where !isEmpty(target_user)\n'
+
+domains = []
+while True:
+    domain = input("Please enter a domain to investigate file sharing (or press Enter to finish): ")
+    if not domain:
+        break
+    domains.append(domain)
+
+if domains:
+    domains_str = ' OR '.join([f'(target_user matches "*{d}*")' for d in domains])
+    query += f'| where !({domains_str})\n'
+
+emails = []
+while True:
+    email = input("Please enter an email to investigate (or press Enter to finish): ")
+    if not email:
+        break
+    emails.append(email)
+
+if emails:
+    emails_str = ' OR '.join([f'(email = "{e}")' for e in emails])
+    query += f'| where {emails_str}\n'
+
+print(query)
